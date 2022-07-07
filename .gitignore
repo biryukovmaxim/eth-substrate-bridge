@@ -7,4 +7,7 @@ typechain
 #Hardhat files
 cache
 artifacts
+
 /.idea/
+/contracts/bridge/.idea/
+/contracts/erc20/.idea/

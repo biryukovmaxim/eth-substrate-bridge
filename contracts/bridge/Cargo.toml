@@ -12,7 +12,10 @@ ink_storage = { version = "3", default-features = false }
 ink_lang = { version = "3", default-features = false }
 
 scale = { package = "parity-scale-codec", version = "3", default-features = false, features = ["derive"] }
-scale-info = { version = "2", default-features = false, features = ["derive"], optional = true }
+scale-info = { version = "2", default-features = false, features = ["derive"], optional = false }
+
+erc20 = { path = "../erc20", default-features = false, features = ["ink-as-dependency"] }
+thiserror-no-std = "2.0.2"
 
 [lib]
 name = "bridge"
@@ -20,7 +23,6 @@ path = "lib.rs"
 crate-type = [
 	# Used for normal contract Wasm blobs.
 	"cdylib",
-    "rlib",
 ]
 
 [features]
@@ -32,5 +34,6 @@ std = [
     "ink_primitives/std",
     "scale/std",
     "scale-info/std",
+    "erc20/std",
 ]
 ink-as-dependency = []

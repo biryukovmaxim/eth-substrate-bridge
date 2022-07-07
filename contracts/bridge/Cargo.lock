@@ -3,19 +3,6 @@
 version = 3
 
 [[package]]
-name = "Bridge"
-version = "0.1.0"
-dependencies = [
- "ink_env",
- "ink_lang",
- "ink_metadata",
- "ink_primitives",
- "ink_storage",
- "parity-scale-codec",
- "scale-info",
-]
-
-[[package]]
 name = "array-init"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -67,6 +54,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf7fe51849ea569fd452f37822f606a5cabb684dc918707a0193fd4664ff324"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "bridge"
+version = "0.1.0"
+dependencies = [
+ "erc20",
+ "ink_env",
+ "ink_lang",
+ "ink_metadata",
+ "ink_primitives",
+ "ink_storage",
+ "parity-scale-codec",
+ "scale-info",
+ "thiserror-no-std",
 ]
 
 [[package]]
@@ -133,6 +135,19 @@ name = "either"
 version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f107b87b6afc2a64fd13cac55fe06d6c8859f12d4b14cbcdd2c67d0976781be"
+
+[[package]]
+name = "erc20"
+version = "0.1.0"
+dependencies = [
+ "ink_env",
+ "ink_lang",
+ "ink_metadata",
+ "ink_primitives",
+ "ink_storage",
+ "parity-scale-codec",
+ "scale-info",
+]
 
 [[package]]
 name = "funty"
@@ -647,6 +662,26 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "thiserror-impl-no-std"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58e6318948b519ba6dc2b442a6d0b904ebfb8d411a3ad3e07843615a72249758"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "thiserror-no-std"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3ad459d94dd517257cc96add8a43190ee620011bb6e6cdc82dafd97dfafafea"
+dependencies = [
+ "thiserror-impl-no-std",
 ]
 
 [[package]]

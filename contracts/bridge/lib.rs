@@ -129,11 +129,10 @@ mod bridge {
             Ok(self.counter)
         }
 
-        fn refund(&self, transfer_id: u128) -> Result<()> {
+        fn refund(&mut self, transfer_id: u128) -> Result<()> {
             let (transfer, successful): (Transfer, bool) = self
                 .get_transfer(transfer_id)?
                 .ok_or(Error::NotFound(transfer_id))?;
-
             if successful {
                 Err(Error::RefundSuccessfulTransfer)
             } else {
@@ -141,11 +140,20 @@ mod bridge {
                 let balance = erc20_contract.balance_of(self.env().account_id());
                 (balance >= transfer.amount)
                     .then(|| {
-                        let from = AccountId::try_from(&transfer.from[..])
-                            .map_err(|_| Error::Unexpected)?;
-                        erc20_contract
-                            .transfer(from, transfer.amount)
-                            .map_err(Into::into)
+                        AccountId::try_from(&transfer.from[..])
+                            .map_err(|_| Error::Unexpected)
+                            .and_then(|acc| {
+                                erc20_contract
+                                    .transfer(acc, transfer.amount)
+                                    .map_err(Into::into)
+                            })
+
+                            .and_then(|_| {
+                                self.queue.insert(transfer_id,&transfer);
+                                self.failed_transfers.remove(transfer_id);
+                                //  todo emit Queued(counter, msg.sender, destination, amount, block.timestamp);
+                                Ok(())
+                            })
                     })
                     .ok_or(Error::InsufficientBridgeBalance {
                         balance,

@@ -11,3 +11,5 @@ artifacts
 /.idea/
 /contracts/bridge/.idea/
 /contracts/erc20/.idea/
+/contracts/bridge/target/
+/contracts/erc20/target/

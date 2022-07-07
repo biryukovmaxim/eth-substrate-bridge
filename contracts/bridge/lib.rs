@@ -21,6 +21,14 @@ mod bridge {
         Allowance { allowance: u128, amount: u128 },
         #[error("Erc20 error")]
         Erc20(#[from] erc20::erc20::Error),
+        #[error("Transfer '{0}' not found")]
+        NotFound(u128),
+        #[error("It's not acceptable to refund successful transfer")]
+        RefundSuccessfulTransfer,
+        #[error("Bridge doesn't have enough amount, balance: {balance:?}, amount: {amount:?}")]
+        InsufficientBridgeBalance { balance: Balance, amount: Balance },
+        #[error("Unexpected error")]
+        Unexpected,
     }
 
     impl TypeInfo for Error {
@@ -121,7 +129,30 @@ mod bridge {
             Ok(self.counter)
         }
 
-        fn refund(&self, transfer_id: u128) {}
+        fn refund(&self, transfer_id: u128) -> Result<()> {
+            let (transfer, successful): (Transfer, bool) = self
+                .get_transfer(transfer_id)?
+                .ok_or(Error::NotFound(transfer_id))?;
+
+            if successful {
+                Err(Error::RefundSuccessfulTransfer)
+            } else {
+                let mut erc20_contract = self.get_erc20_ref();
+                let balance = erc20_contract.balance_of(self.env().account_id());
+                (balance >= transfer.amount)
+                    .then(|| {
+                        let from = AccountId::try_from(&transfer.from[..])
+                            .map_err(|_| Error::Unexpected)?;
+                        erc20_contract
+                            .transfer(from, transfer.amount)
+                            .map_err(Into::into)
+                    })
+                    .ok_or(Error::InsufficientBridgeBalance {
+                        balance,
+                        amount: (transfer.amount),
+                    })?
+            }
+        }
 
         // function refund(uint256 transferID) external returns (bool) {
         // (Transfer memory trans, bool exists, bool successful) = getTransfer(

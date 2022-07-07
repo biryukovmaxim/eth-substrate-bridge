@@ -46,7 +46,7 @@ mod bridge {
         PackedLayout,
         scale_info::TypeInfo,
     )]
-    struct Transfer {
+    pub struct Transfer {
         id: u128,
         from: [u8; 32],
         to: [u8; 20],
@@ -60,6 +60,8 @@ mod bridge {
         // mapping(uint256 => Transfer) failed_transfers;
         //
         queue: ink_storage::Mapping<u128, Transfer>,
+        failed_transfers: ink_storage::Mapping<u128, Transfer>,
+
         ether_bridge_address: [u8; 20],
         token_address: AccountId,
         executor: AccountId,
@@ -79,6 +81,15 @@ mod bridge {
                 contract.executor = Self::env().caller();
                 contract.counter = 0;
             })
+        }
+
+        #[ink(message)]
+        pub fn get_transfer(&self, transfer_id: u128) -> Result<Option<(Transfer, bool)>> {
+            Ok(self
+                .queue
+                .get(transfer_id)
+                .map(|t| (t, true))
+                .or_else(|| self.failed_transfers.get(transfer_id).map(|t| (t, false))))
         }
 
         #[ink(message)]
@@ -109,5 +120,31 @@ mod bridge {
             //  todo emit Queued(counter, msg.sender, destination, amount, block.timestamp);
             Ok(self.counter)
         }
+
+        fn refund(&self, transfer_id: u128) {}
+
+        // function refund(uint256 transferID) external returns (bool) {
+        // (Transfer memory trans, bool exists, bool successful) = getTransfer(
+        // transferID
+        // );
+        // require(trans.from == msg.sender, "you are not transfer initiator");
+        // require(
+        // exists && !successful,
+        // "refund is not acceptable, transfer is not exists or successful"
+        // );
+        //
+        // uint256 balance = _token.balanceOf(address(this));
+        // if (balance < trans.amount) {
+        // emit InsufficientBridgeBalance(balance, block.timestamp);
+        // revert("bridge does not have enough amount to transfer");
+        // }
+        // bool refunded = _token.transfer(trans.from, trans.amount);
+        // if (!refunded) {
+        // return false;
+        // }
+        // delete failed_transfers[transferID];
+        // emit Refund(trans.from, trans.amount, block.timestamp);
+        // return true;
+        // }
     }
 }

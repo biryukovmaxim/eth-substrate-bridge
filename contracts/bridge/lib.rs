@@ -5,15 +5,14 @@ use ink_lang as ink;
 #[ink::contract]
 mod bridge {
     use erc20::Erc20Ref;
-    // use ink_env::AccountId;
 
     use ink_env::call::FromAccountId;
     use ink_storage::traits::{PackedLayout, SpreadAllocate, SpreadLayout};
-    use scale_info::{Type, TypeInfo};
 
     use thiserror_no_std::Error;
 
     #[derive(Error, Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
         #[error("You need to transfer at least some tokens")]
         ZeroAmount,
@@ -33,36 +32,22 @@ mod bridge {
         InsufficientBridgeBalance { balance: Balance, amount: Balance },
         #[error("Unexpected error")]
         Unexpected,
-        #[error("Only executor is able to process queued tansfers")]
-        PermissionDenied,
-    }
-
-    impl TypeInfo for Error {
-        type Identity = ();
-
-        fn type_info() -> Type {
-            todo!()
-        }
+        #[error("Only executor is able to process queued transfers")]
+        ExecutorPermissionDenied,
+        #[error("Only sender is able to refund unsuccessful transfer")]
+        RefundPermissionDenied,
     }
 
     /// The ERC-20 result type.
     pub type Result<T> = core::result::Result<T, Error>;
 
     #[derive(
-        Debug,
-        PartialEq,
-        Eq,
-        scale::Encode,
-        scale::Decode,
-        Clone,
-        Copy,
-        SpreadLayout,
-        PackedLayout,
-        scale_info::TypeInfo,
+        Debug, PartialEq, Eq, scale::Encode, scale::Decode, Clone, Copy, SpreadLayout, PackedLayout,
     )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct Transfer {
         id: u128,
-        from: [u8; 32],
+        from: AccountId,
         to: [u8; 20],
         amount: Balance,
     }
@@ -70,9 +55,6 @@ mod bridge {
     #[ink(storage)]
     #[derive(SpreadAllocate)]
     pub struct Bridge {
-        // mapping(uint256 => Transfer) queue;
-        // mapping(uint256 => Transfer) failed_transfers;
-        //
         queue: ink_storage::Mapping<u128, Transfer>,
         failed_transfers: ink_storage::Mapping<u128, Transfer>,
 
@@ -80,6 +62,53 @@ mod bridge {
         token_address: AccountId,
         executor: AccountId,
         counter: u128,
+    }
+
+    #[ink(event)]
+    pub struct Queued {
+        #[ink(topic)]
+        id: u128,
+        #[ink(topic)]
+        from: AccountId,
+        to: [u8; 20],
+        amount: Balance,
+        #[ink(topic)]
+        timestamp: Timestamp,
+    }
+
+    #[ink(event)]
+    pub struct SuccessfulTransfer {
+        #[ink(topic)]
+        id: u128,
+        #[ink(topic)]
+        from: AccountId,
+        to: [u8; 20],
+        amount: Balance,
+        #[ink(topic)]
+        timestamp: Timestamp,
+    }
+
+    #[ink(event)]
+    pub struct FailedTransfer {
+        #[ink(topic)]
+        id: u128,
+        #[ink(topic)]
+        from: AccountId,
+        to: [u8; 20],
+        amount: Balance,
+        #[ink(topic)]
+        timestamp: Timestamp,
+    }
+
+    #[ink(event)]
+    pub struct Refund {
+        #[ink(topic)]
+        id: u128,
+        #[ink(topic)]
+        to: AccountId,
+        amount: Balance,
+        #[ink(topic)]
+        timestamp: Timestamp,
     }
 
     impl Bridge {
@@ -126,12 +155,21 @@ mod bridge {
                 self.counter,
                 &Transfer {
                     id: self.counter,
-                    from: *caller.as_ref(),
+                    from: caller,
                     to: external_destination_address,
                     amount,
                 },
             );
-            //  todo emit Queued(counter, msg.sender, destination, amount, block.timestamp);
+            ink_lang::codegen::EmitEvent::<Bridge>::emit_event(
+                self.env(),
+                Queued {
+                    id: self.counter,
+                    from: caller,
+                    to: external_destination_address,
+                    amount,
+                    timestamp: self.env().block_timestamp(),
+                },
+            );
             Ok(self.counter)
         }
 
@@ -143,22 +181,28 @@ mod bridge {
             if successful {
                 Err(Error::RefundSuccessfulTransfer)
             } else {
+                let caller = self.env().caller();
+                if transfer.from != self.env().caller() {
+                    return Err(Error::RefundPermissionDenied);
+                }
                 let mut erc20_contract = self.get_erc20_ref();
                 let balance = erc20_contract.balance_of(self.env().account_id());
                 (balance >= transfer.amount)
                     .then(|| {
-                        AccountId::try_from(&transfer.from[..])
-                            .map_err(|_| Error::Unexpected)
-                            .and_then(|acc| {
-                                erc20_contract
-                                    .transfer(acc, transfer.amount)
-                                    .map_err(Into::into)
-                            })
-
+                        erc20_contract
+                            .transfer(transfer.from, transfer.amount)
+                            .map_err(Into::into)
                             .and_then(|_| {
-                                self.queue.insert(transfer_id,&transfer);
                                 self.failed_transfers.remove(transfer_id);
-                                //  todo emit Queued(counter, msg.sender, destination, amount, block.timestamp);
+                                ink_lang::codegen::EmitEvent::<Bridge>::emit_event(
+                                    self.env(),
+                                    Refund {
+                                        id: transfer.id,
+                                        to: caller,
+                                        amount: transfer.amount,
+                                        timestamp: self.env().block_timestamp(),
+                                    },
+                                );
                                 Ok(())
                             })
                     })
@@ -170,7 +214,7 @@ mod bridge {
         }
 
         #[ink(message)]
-        pub fn try_again(&mut self, transfer_id: u128) -> Result<()>{
+        pub fn try_again(&mut self, transfer_id: u128) -> Result<()> {
             let (transfer, successful): (Transfer, bool) = self
                 .get_transfer(transfer_id)?
                 .ok_or(Error::NotFound(transfer_id))?;
@@ -179,14 +223,29 @@ mod bridge {
             } else {
                 self.queue.insert(transfer_id, &transfer);
                 self.failed_transfers.remove(transfer_id);
-                // todo emit queued
+                ink_lang::codegen::EmitEvent::<Bridge>::emit_event(
+                    self.env(),
+                    Queued {
+                        id: transfer.id,
+                        from: transfer.from,
+                        to: transfer.to,
+                        amount: transfer.amount,
+                        timestamp: self.env().block_timestamp(),
+                    },
+                );
                 Ok(())
             }
         }
 
         #[ink(message)]
-        pub fn process_transfer(&mut self, transfer_id: u128, mark_as_successful: bool) -> Result<()> {
-            (self.executor == self.env().caller()).then(|| {}).ok_or(Error::PermissionDenied)?;
+        pub fn process_transfer(
+            &mut self,
+            transfer_id: u128,
+            mark_as_successful: bool,
+        ) -> Result<()> {
+            (self.executor == self.env().caller())
+                .then(|| {})
+                .ok_or(Error::ExecutorPermissionDenied)?;
             let (transfer, successful): (Transfer, bool) = self
                 .get_transfer(transfer_id)?
                 .ok_or(Error::NotFound(transfer_id))?;
@@ -195,16 +254,28 @@ mod bridge {
             } else {
                 self.queue.remove(transfer_id);
                 if mark_as_successful {
-                    // emit SuccessfulTransfer(
-                    //     transferID,
-                    //     order.from,
-                    //     order.to,
-                    //     order.amount,
-                    //     block.timestamp
-                    // );
+                    ink_lang::codegen::EmitEvent::<Bridge>::emit_event(
+                        self.env(),
+                        SuccessfulTransfer {
+                            id: transfer.id,
+                            from: transfer.from,
+                            to: transfer.to,
+                            amount: transfer.amount,
+                            timestamp: self.env().block_timestamp(),
+                        },
+                    );
                 } else {
                     self.failed_transfers.insert(transfer_id, &transfer);
-                    // todo emit failed
+                    ink_lang::codegen::EmitEvent::<Bridge>::emit_event(
+                        self.env(),
+                        FailedTransfer {
+                            id: transfer.id,
+                            from: transfer.from,
+                            to: transfer.to,
+                            amount: transfer.amount,
+                            timestamp: self.env().block_timestamp(),
+                        },
+                    );
                 }
 
                 Ok(())

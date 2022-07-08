@@ -134,7 +134,7 @@ contract Bridge {
         return (order, false, false);
     }
 
-    function set_status(uint256 transferID, bool isSuccessful)
+    function processTransfer(uint256 transferID, bool isSuccessful)
         public
         onlyExecutor
         returns (bool isSet)

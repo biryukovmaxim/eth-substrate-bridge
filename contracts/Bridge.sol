@@ -144,6 +144,7 @@ contract Bridge {
 
         if (!isSuccessful) {
             failed_transfers[transferID] = queue[transferID];
+            delete queue[transferID];
             emit FailedTransfer(
                 transferID,
                 order.from,
@@ -151,6 +152,7 @@ contract Bridge {
                 order.amount,
                 block.timestamp
             );
+            return true;
         }
         delete queue[transferID];
 

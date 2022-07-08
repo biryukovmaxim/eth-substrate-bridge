@@ -25,10 +25,16 @@ mod bridge {
         NotFound(u128),
         #[error("It's not acceptable to refund successful transfer")]
         RefundSuccessfulTransfer,
+        #[error("It's not acceptable to try_again successful transfer")]
+        TryAgainSuccessfulTransfer,
+        #[error("It's not acceptable to process unsuccessful transfer")]
+        ProcessUnsuccessfulTransfer,
         #[error("Bridge doesn't have enough amount, balance: {balance:?}, amount: {amount:?}")]
         InsufficientBridgeBalance { balance: Balance, amount: Balance },
         #[error("Unexpected error")]
         Unexpected,
+        #[error("Only executor is able to process queued tansfers")]
+        PermissionDenied,
     }
 
     impl TypeInfo for Error {
@@ -129,7 +135,8 @@ mod bridge {
             Ok(self.counter)
         }
 
-        fn refund(&mut self, transfer_id: u128) -> Result<()> {
+        #[ink(message)]
+        pub fn refund(&mut self, transfer_id: u128) -> Result<()> {
             let (transfer, successful): (Transfer, bool) = self
                 .get_transfer(transfer_id)?
                 .ok_or(Error::NotFound(transfer_id))?;
@@ -162,28 +169,46 @@ mod bridge {
             }
         }
 
-        // function refund(uint256 transferID) external returns (bool) {
-        // (Transfer memory trans, bool exists, bool successful) = getTransfer(
-        // transferID
-        // );
-        // require(trans.from == msg.sender, "you are not transfer initiator");
-        // require(
-        // exists && !successful,
-        // "refund is not acceptable, transfer is not exists or successful"
-        // );
-        //
-        // uint256 balance = _token.balanceOf(address(this));
-        // if (balance < trans.amount) {
-        // emit InsufficientBridgeBalance(balance, block.timestamp);
-        // revert("bridge does not have enough amount to transfer");
-        // }
-        // bool refunded = _token.transfer(trans.from, trans.amount);
-        // if (!refunded) {
-        // return false;
-        // }
-        // delete failed_transfers[transferID];
-        // emit Refund(trans.from, trans.amount, block.timestamp);
-        // return true;
-        // }
+        #[ink(message)]
+        pub fn try_again(&mut self, transfer_id: u128) -> Result<()>{
+            let (transfer, successful): (Transfer, bool) = self
+                .get_transfer(transfer_id)?
+                .ok_or(Error::NotFound(transfer_id))?;
+            if successful {
+                Err(Error::TryAgainSuccessfulTransfer)
+            } else {
+                self.queue.insert(transfer_id, &transfer);
+                self.failed_transfers.remove(transfer_id);
+                // todo emit queued
+                Ok(())
+            }
+        }
+
+        #[ink(message)]
+        pub fn process_transfer(&mut self, transfer_id: u128, mark_as_successful: bool) -> Result<()> {
+            (self.executor == self.env().caller()).then(|| {}).ok_or(Error::PermissionDenied)?;
+            let (transfer, successful): (Transfer, bool) = self
+                .get_transfer(transfer_id)?
+                .ok_or(Error::NotFound(transfer_id))?;
+            if !successful {
+                Err(Error::ProcessUnsuccessfulTransfer)
+            } else {
+                self.queue.remove(transfer_id);
+                if mark_as_successful {
+                    // emit SuccessfulTransfer(
+                    //     transferID,
+                    //     order.from,
+                    //     order.to,
+                    //     order.amount,
+                    //     block.timestamp
+                    // );
+                } else {
+                    self.failed_transfers.insert(transfer_id, &transfer);
+                    // todo emit failed
+                }
+
+                Ok(())
+            }
+        }
     }
 }

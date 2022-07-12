@@ -42,10 +42,9 @@ contract Bridge {
     uint64 counter = 0;
 
     // token = MyToken's contract address
-    constructor(address token, uint8[32] memory bridgeAddress) {
+    constructor(address token) {
         _token = IERC20(token);
         executor = msg.sender;
-        substrateBridgeAddress = bridgeAddress;
     }
 
     modifier onlyExecutor() {
@@ -55,7 +54,6 @@ contract Bridge {
 
     function transfer(uint256 amount, uint8[32] calldata destination)
         external
-        payable
     {
         require(amount > 0, "You need to transfer at least some tokens");
         uint256 allowance = _token.allowance(msg.sender, address(this));
@@ -120,16 +118,16 @@ contract Bridge {
         returns (
             Transfer memory order,
             bool exists,
-            bool successful
+            bool failed
         )
     {
         order = queue[transferID];
         if (order.id > 0) {
-            return (order, true, true);
+            return (order, true, false);
         }
         order = failed_transfers[transferID];
         if (order.id > 0) {
-            return (order, true, false);
+            return (order, true, true);
         }
         return (order, false, false);
     }

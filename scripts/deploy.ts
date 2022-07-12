@@ -4,6 +4,7 @@
 // When running the script with `npx hardhat run <script>` you'll find the Hardhat
 // Runtime Environment's members available in the global scope.
 import { ethers } from "hardhat";
+import { deployEthBridge } from "../src/deploy";
 
 async function main() {
   // Hardhat always runs the compile task when running scripts with its command
@@ -13,15 +14,16 @@ async function main() {
   // manually to make sure everything is compiled
   // await hre.run('compile');
 
-  // We get the contract to deploy
-  const [tokenOwner] = await ethers.getSigners();
-  console.log("Token owner: ", tokenOwner);
+  const [tokenOwner, bridgeExecutor] = await ethers.getSigners();
+  console.log("Token owner: ", tokenOwner.address);
+  console.log("bridge Executor: ", bridgeExecutor.address);
+
   const MyToken = await ethers.getContractFactory("MyToken", tokenOwner);
   const myToken = await MyToken.deploy(100000);
-
   await myToken.deployed();
-
   console.log("MyToken deployed to:", myToken.address);
+
+  await deployEthBridge(bridgeExecutor, myToken.address)
 }
 
 // We recommend this pattern to be able to use async/await everywhere

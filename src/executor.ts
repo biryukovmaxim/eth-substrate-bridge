@@ -1,22 +1,30 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { Bridge, Bridge__factory, ERC20, ERC20__factory } from "../typechain";
 import { BigNumberish } from "ethers";
+import { ContractPromise } from "@polkadot/api-contract";
 
 export class Executor {
   ethBridgeAddress: string;
-  signer: SignerWithAddress;
-  contract: Bridge;
+  ethBridgeSigner: SignerWithAddress;
+  ethBridgeContract: Bridge;
 
-  constructor(ethBridgeAddress: string, signer: SignerWithAddress) {
+  substrateTokenContract: ContractPromise;
+
+  constructor(
+    ethBridgeAddress: string,
+    signer: SignerWithAddress,
+    substrateTokenContract: ContractPromise
+  ) {
     this.ethBridgeAddress = ethBridgeAddress;
-    this.signer = signer;
-    this.contract = Bridge__factory.connect(ethBridgeAddress, signer);
+    this.ethBridgeSigner = signer;
+    this.ethBridgeContract = Bridge__factory.connect(ethBridgeAddress, signer);
+    this.substrateTokenContract = substrateTokenContract;
   }
 
   run() {
-    this.contract.on(
+    this.ethBridgeContract.on(
       "Queued",
-      (
+      async (
         id?: BigNumberish | null,
         from?: string | null,
         to?: null,
@@ -28,7 +36,19 @@ export class Executor {
             JSON.stringify({ id, from, to, amount, timestamp })
         );
 
-
+        // const gasLimit: BigNumberish = 3000 * 1000000;
+        // const storageDepositLimit = null;
+        //
+        // this.substrateTokenContract.tx;
+        // await this.substrateTokenContract.tx
+        //   .inc({ storageDepositLimit, gasLimit }, incValue)
+        //   .signAndSend(alicePair, (result) => {
+        //     if (result.status.isInBlock) {
+        //       console.log("in a block");
+        //     } else if (result.status.isFinalized) {
+        //       console.log("finalized");
+        //     }
+        //   });
       }
     );
   }

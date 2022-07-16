@@ -1,54 +1,86 @@
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { Bridge, Bridge__factory, ERC20, ERC20__factory } from "../typechain";
 import { BigNumberish } from "ethers";
 import { ContractPromise } from "@polkadot/api-contract";
+import { KeyringPair } from "@polkadot/keyring/types";
+import { BigNumber } from "@ethersproject/bignumber/src.ts/bignumber";
+import { ApiPromise, Keyring } from "@polkadot/api";
+import {
+  ContractCallOutcome,
+  ContractOptions,
+} from "@polkadot/api-contract/types";
 
 export class Executor {
-  ethBridgeAddress: string;
-  ethBridgeSigner: SignerWithAddress;
   ethBridgeContract: Bridge;
 
+  substrateApi: ApiPromise;
   substrateTokenContract: ContractPromise;
+  substrateBridgeExecutor: KeyringPair;
 
   constructor(
-    ethBridgeAddress: string,
-    signer: SignerWithAddress,
-    substrateTokenContract: ContractPromise
+    ethBridgeContract: Bridge,
+    substrateTokenContract: ContractPromise,
+    substrateBridgeExecutor: KeyringPair,
+    substrateApi: ApiPromise
   ) {
-    this.ethBridgeAddress = ethBridgeAddress;
-    this.ethBridgeSigner = signer;
-    this.ethBridgeContract = Bridge__factory.connect(ethBridgeAddress, signer);
+    this.ethBridgeContract = ethBridgeContract;
     this.substrateTokenContract = substrateTokenContract;
+    this.substrateBridgeExecutor = substrateBridgeExecutor;
+    this.substrateApi = substrateApi;
   }
 
   run() {
     this.ethBridgeContract.on(
       "Queued",
       async (
-        id?: BigNumberish | null,
-        from?: string | null,
-        to?: null,
-        amount?: null,
-        timestamp?: BigNumberish | null
+        id: BigNumber,
+        from: string | null,
+        to: Uint8Array,
+        amount: BigNumber,
+        timestamp: BigNumber | null
       ) => {
         console.log(
           "received event:" +
             JSON.stringify({ id, from, to, amount, timestamp })
         );
 
-        // const gasLimit: BigNumberish = 3000 * 1000000;
-        // const storageDepositLimit = null;
-        //
-        // this.substrateTokenContract.tx;
-        // await this.substrateTokenContract.tx
-        //   .inc({ storageDepositLimit, gasLimit }, incValue)
-        //   .signAndSend(alicePair, (result) => {
-        //     if (result.status.isInBlock) {
-        //       console.log("in a block");
-        //     } else if (result.status.isFinalized) {
-        //       console.log("finalized");
-        //     }
-        //   });
+        const balanceBridge: ContractCallOutcome =
+          await this.substrateTokenContract.query.balanceOf(
+            this.substrateBridgeExecutor.address,
+            { gasLimit: -1 },
+            this.substrateBridgeExecutor.address
+          );
+        // console.log({ balanceBridge: balanceBridge.output?.toHuman() });
+
+        const value = this.substrateApi.createType("Balance", amount);
+        const accountId = this.substrateApi.createType("AccountId", to);
+
+        const TransferTx = this.substrateTokenContract.tx.transfer(
+          {},
+          accountId,
+          value
+        );
+
+        const unsub = await TransferTx.signAndSend(
+          this.substrateBridgeExecutor,
+          async (result) => {
+            if (result.isError) {
+              unsub();
+              const ethTx = await this.ethBridgeContract.processTransfer(
+                id,
+                false
+              );
+              await ethTx.wait();
+            }
+            if (result.status.isInBlock || result.status.isFinalized) {
+              unsub();
+              const ethTx = await this.ethBridgeContract.processTransfer(
+                id,
+                true
+              );
+              await ethTx.wait();
+            }
+          }
+        );
       }
     );
   }

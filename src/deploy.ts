@@ -39,10 +39,9 @@ export async function deployEthErc20(
 
 export async function deploySubstrateErc20(
   substrateTokenOwner: KeyringPair,
-  initSupply: BigNumberish
+  initSupply: BigNumberish,
+  api: ApiPromise
 ): Promise<ContractPromise> {
-  const wsProvider = new WsProvider("ws://127.0.0.1:9944");
-  const api = await ApiPromise.create({ provider: wsProvider });
   console.log(`current folder is ${process.cwd()}`);
   const wasm = fs.readFileSync("contracts/erc20/target/ink/erc20.wasm");
   const metadata = fs.readFileSync("contracts/erc20/target/ink/metadata.json");
@@ -54,7 +53,6 @@ export async function deploySubstrateErc20(
     substrateTokenOwner,
     initSupply
   );
-  console.log({ address });
 
   // The address is the actual on-chain address as ss58 or AccountId object.
   const contract = new ContractPromise(api, metadata.toString(), address);

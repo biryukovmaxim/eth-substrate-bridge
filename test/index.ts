@@ -1,8 +1,8 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { BigNumber as BN } from "ethers";
+import { BigNumber, BigNumber as BN, BigNumberish } from "ethers";
 import { Bridge, Bridge__factory, MyToken__factory } from "../typechain";
-import { Keyring } from "@polkadot/api";
+import { ApiPromise, Keyring, WsProvider } from "@polkadot/api";
 
 import {
   deployEthBridge,
@@ -14,6 +14,7 @@ import { Executor } from "../src/executor";
 import { randomAsU8a } from "@polkadot/util-crypto/random/asU8a";
 import { KeyringPair } from "@polkadot/keyring/types";
 import { ContractPromise } from "@polkadot/api-contract";
+import { ContractCallOutcome } from "@polkadot/api-contract/types";
 
 const initSupply = 100000;
 const transferAmount = 100;
@@ -23,8 +24,11 @@ let bridgeEthClient: Bridge;
 let ethTokenOwner: SignerWithAddress;
 let ethBridgeExecutor: SignerWithAddress;
 let ethTokenContractAddress: string;
+let ethBridgeClient: Bridge;
 
 let substrateTokenContract: ContractPromise;
+let substrateAlice: KeyringPair;
+let substrateBob: KeyringPair;
 
 describe("Test", function () {
   before("Preparing eth", async () => {
@@ -65,16 +69,29 @@ describe("Test", function () {
     const keyring = new Keyring({ type: "sr25519" });
     // const seed = randomAsU8a(32);
     // const substrateTokenOwner: KeyringPair = keyring.addFromSeed(seed)
-    const alice = keyring.addFromUri("//Alice", { name: "Alice default" });
-    substrateTokenContract = await deploySubstrateErc20(alice, initSupply);
+    substrateAlice = keyring.addFromUri("//Alice", { name: "Alice default" });
+    const wsProvider = new WsProvider("ws://127.0.0.1:9944");
 
-    new Executor(
+    substrateBob = keyring.addFromUri("//Bob", { name: "Bob default" });
+
+    const api: ApiPromise = await ApiPromise.create({ provider: wsProvider });
+    substrateTokenContract = await deploySubstrateErc20(
+      substrateAlice,
+      initSupply,
+      api
+    );
+    ethBridgeClient = Bridge__factory.connect(
       bridgeContractAddress,
-      ethBridgeExecutor,
-      substrateTokenContract
+      ethBridgeExecutor
+    );
+    new Executor(
+      ethBridgeClient,
+      substrateTokenContract,
+      substrateAlice,
+      api
     ).run();
   });
-  it("Eth add to transfer queue", async function () {
+  it("Eth transfer to substrate bob", async function () {
     const tokenCli = MyToken__factory.connect(ethTokenContractAddress, ethUser);
     const approveTx = await tokenCli.approve(
       bridgeEthClient.address,
@@ -82,17 +99,59 @@ describe("Test", function () {
     );
     await approveTx.wait();
 
+    const destination: Array<BigNumberish> = Array.from(
+      substrateBob.addressRaw
+    );
     const addToQueueTx = await bridgeEthClient.transfer(
       transferAmount,
-      [
-        0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
-      ]
+      // @ts-ignore
+      destination
     );
     await addToQueueTx.wait();
-    const firstTransfer = await bridgeEthClient.getTransfer(1);
-    // console.log(firstTransfer);
 
-    await new Promise((r) => setTimeout(r, 20000));
+    // todo replace by listening to successful transfer event
+    await new Promise((r) => setTimeout(r, 5000));
+    const res = await ethBridgeClient.getTransfer(1);
+    expect(res.exists).to.equal(false);
+
+    const txResult: ContractCallOutcome =
+      await substrateTokenContract.query.balanceOf(
+        substrateBob.address,
+        { gasLimit: -1 },
+        substrateBob.address
+      );
+    expect(txResult.output?.toHuman()).to.equal(transferAmount.toString());
   });
+
+  // it("Eth transfer to substrate bob", async function () {
+  //   const tokenCli = MyToken__factory.connect(ethTokenContractAddress, ethUser);
+  //   const approveTx = await tokenCli.approve(
+  //     bridgeEthClient.address,
+  //     transferAmount
+  //   );
+  //   await approveTx.wait();
+  //
+  //   const destination: Array<BigNumberish> = Array.from(
+  //     substrateBob.addressRaw
+  //   );
+  //   const addToQueueTx = await bridgeEthClient.transfer(
+  //     transferAmount,
+  //     // @ts-ignore
+  //     destination
+  //   );
+  //   await addToQueueTx.wait();
+  //
+  //   // todo replace by listening to successful transfer event
+  //   await new Promise((r) => setTimeout(r, 5000));
+  //   const res = await ethBridgeClient.getTransfer(1);
+  //   expect(res.exists).to.equal(false);
+  //
+  //   const txResult: ContractCallOutcome =
+  //     await substrateTokenContract.query.balanceOf(
+  //       substrateBob.address,
+  //       { gasLimit: -1 },
+  //       substrateBob.address
+  //     );
+  //   expect(txResult.output?.toHuman()).to.equal(transferAmount.toString());
+  // });
 });

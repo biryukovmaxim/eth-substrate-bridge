@@ -57,8 +57,6 @@ mod bridge {
     pub struct Bridge {
         queue: ink_storage::Mapping<u128, Transfer>,
         failed_transfers: ink_storage::Mapping<u128, Transfer>,
-
-        ether_bridge_address: [u8; 20],
         token_address: AccountId,
         executor: AccountId,
         counter: u128,
@@ -117,10 +115,9 @@ mod bridge {
         }
 
         #[ink(constructor)]
-        pub fn new(token: AccountId, bridge_address: [u8; 20]) -> Self {
+        pub fn new(token: AccountId) -> Self {
             ink_lang::utils::initialize_contract(|contract: &mut Self| {
                 contract.token_address = token;
-                contract.ether_bridge_address = bridge_address;
                 contract.executor = Self::env().caller();
                 contract.counter = 0;
             })

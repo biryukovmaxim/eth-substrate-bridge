@@ -7,6 +7,7 @@ import { ApiPromise, Keyring, WsProvider } from "@polkadot/api";
 import {
   deployEthBridge,
   deployEthErc20,
+  deploySubstrateBridge,
   deploySubstrateErc20,
 } from "../src/deploy";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
@@ -27,8 +28,11 @@ let ethTokenContractAddress: string;
 let ethBridgeClient: Bridge;
 
 let substrateTokenContract: ContractPromise;
+let substrateBridgeContract: ContractPromise;
+
 let substrateAlice: KeyringPair;
 let substrateBob: KeyringPair;
+let substrateBridgeOwner: KeyringPair;
 
 describe("Test", function () {
   before("Preparing eth", async () => {
@@ -73,12 +77,20 @@ describe("Test", function () {
     const wsProvider = new WsProvider("ws://127.0.0.1:9944");
 
     substrateBob = keyring.addFromUri("//Bob", { name: "Bob default" });
+    substrateBridgeOwner = keyring.addFromUri("//Dave", {
+      name: "Dave default",
+    });
 
     const api: ApiPromise = await ApiPromise.create({ provider: wsProvider });
     substrateTokenContract = await deploySubstrateErc20(
       substrateAlice,
       initSupply,
       api
+    );
+    substrateBridgeContract = await deploySubstrateBridge(
+      substrateBridgeOwner,
+      api,
+      substrateTokenContract.address
     );
     ethBridgeClient = Bridge__factory.connect(
       bridgeContractAddress,

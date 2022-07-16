@@ -1,18 +1,12 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { ethers } from "hardhat";
-import { BigNumber, BigNumberish } from "ethers";
+import { BigNumberish } from "ethers";
 import { MyToken, MyToken__factory } from "../typechain";
-import { ApiPromise, WsProvider } from "@polkadot/api";
+import { ApiPromise } from "@polkadot/api";
 import { KeyringPair } from "@polkadot/keyring/types";
-import {
-  BlueprintPromise,
-  CodePromise,
-  ContractPromise,
-} from "@polkadot/api-contract";
-import { Hash } from "@polkadot/types/interfaces/runtime/types";
+import { CodePromise, ContractPromise } from "@polkadot/api-contract";
+import { Hash, AccountId } from "@polkadot/types/interfaces/runtime/types";
 import * as fs from "fs";
-
-import { ContractCallOutcome } from "@polkadot/api-contract/types";
 
 export async function deployEthBridge(
   bridgeExecutor: SignerWithAddress,
@@ -46,53 +40,63 @@ export async function deploySubstrateErc20(
   const wasm = fs.readFileSync("contracts/erc20/target/ink/erc20.wasm");
   const metadata = fs.readFileSync("contracts/erc20/target/ink/metadata.json");
 
+  return deploySubstrateContract(
+    substrateTokenOwner,
+    initSupply,
+    api,
+    wasm,
+    metadata
+  );
+}
+
+export async function deploySubstrateBridge(
+  contractOwner: KeyringPair,
+  api: ApiPromise,
+  address: AccountId
+): Promise<ContractPromise> {
+  console.log(`current folder is ${process.cwd()}`);
+  const wasm = fs.readFileSync("contracts/bridge/target/ink/bridge.wasm");
+  const metadata = fs.readFileSync("contracts/bridge/target/ink/metadata.json");
+
+  return deploySubstrateContract(contractOwner, address, api, wasm, metadata);
+}
+
+async function deploySubstrateContract(
+  contractOwner: KeyringPair,
+  initArgs: any,
+  api: ApiPromise,
+  wasm: Buffer,
+  metadata: Buffer
+): Promise<ContractPromise> {
   const code = new CodePromise(api, metadata.toString(), wasm);
   const { address, hash } = await deploySubstrateCode(
     api,
     code,
-    substrateTokenOwner,
-    initSupply
+    contractOwner,
+    initArgs
   );
 
   // The address is the actual on-chain address as ss58 or AccountId object.
-  const contract = new ContractPromise(api, metadata.toString(), address);
-
-  // let contractCallOutcome: ContractCallOutcome;
-  // const txResult: ContractCallOutcome = await contract.query.balanceOf(
-  //   substrateTokenOwner.address,
-  //   { gasLimit: -1 },
-  //   substrateTokenOwner.address
-  // );
-  // console.log({
-  //   debugMessage: txResult.debugMessage,
-  //   gasConsumed: txResult.gasConsumed.toHuman(),
-  //   gasRequired: txResult.gasRequired.toHuman(),
-  //   output: txResult.output?.toHuman(),
-  //   result: txResult.result.toHuman(),
-  //   resultData: txResult.result.asOk.data.toUtf8(),
-  //   storageDeposit: txResult.storageDeposit.toHuman(),
-  // });
-
-  return contract;
+  return new ContractPromise(api, metadata.toString(), address);
 }
 
 async function deploySubstrateCode(
   api: ApiPromise,
   code: CodePromise,
-  substrateTokenOwner: KeyringPair,
-  initSupply: BigNumberish
+  contractOwner: KeyringPair,
+  initArgs: any
 ): Promise<{ address: string; hash: Hash }> {
   // maximum gas to be consumed for the instantiation. if limit is too small the instantiation will fail.
   const gasLimit: BigNumberish = 100000 * 1000000;
   // a limit to how much Balance to be used to pay for the storage created by the instantiation
   // if null is passed, unlimited balance can be used
   const storageDepositLimit = null;
-  const tx = code.tx.new({ gasLimit, storageDepositLimit }, initSupply);
+  const tx = code.tx.new({ gasLimit, storageDepositLimit }, initArgs);
 
   const myPromise: Promise<{ address: string; hash: Hash }> = new Promise(
     async (resolve) => {
       const unsub = await tx.signAndSend(
-        substrateTokenOwner,
+        contractOwner,
         ({
           status,
           // @ts-ignore
@@ -110,40 +114,6 @@ async function deploySubstrateCode(
       );
     }
   );
-
-  return await myPromise;
-}
-
-async function deployBlueprint(
-  blueprint: BlueprintPromise,
-  substrateTokenOwner: KeyringPair
-): Promise<string> {
-  // maximum gas to be consumed for the instantiation. if limit is too small the instantiation will fail.
-  const gasLimit: BigNumberish = 100000 * 1000000;
-  // a limit to how much Balance to be used to pay for the storage created by the instantiation
-  // if null is passed, unlimited balance can be used
-  const storageDepositLimit = null;
-  // used to derive contract address,
-  // use null to prevent duplicate contracts
-  const salt = new Uint8Array();
-
-  const tx = blueprint.tx.default({ gasLimit, storageDepositLimit, salt });
-
-  const myPromise: Promise<string> = new Promise(async (resolve) => {
-    const unsub = await tx.signAndSend(
-      substrateTokenOwner,
-      ({
-        // @ts-ignore
-        contract,
-        status,
-      }) => {
-        if (status.isInBlock || status.isFinalized) {
-          unsub();
-          resolve(contract.address.toString());
-        }
-      }
-    );
-  });
 
   return await myPromise;
 }

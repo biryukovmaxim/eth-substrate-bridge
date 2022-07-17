@@ -15,7 +15,7 @@ export async function deployEthBridge(
   const Bridge = await ethers.getContractFactory("Bridge", bridgeExecutor);
   const bridge = await Bridge.deploy(myToken);
   await bridge.deployed();
-  console.log("Bridge deployed to:", bridge.address);
+  console.log("ETH Bridge deployed to:", bridge.address);
   return bridge.address;
 }
 
@@ -26,7 +26,7 @@ export async function deployEthErc20(
   const MyToken = await ethers.getContractFactory("MyToken", tokenOwner);
   const myTokenContract = await MyToken.deploy(initSupply);
   await myTokenContract.deployed();
-  console.log("MyToken deployed to:", myTokenContract.address);
+  console.log("ETH MyToken deployed to:", myTokenContract.address);
 
   return MyToken__factory.connect(myTokenContract.address, tokenOwner);
 }
@@ -40,13 +40,16 @@ export async function deploySubstrateErc20(
   const wasm = fs.readFileSync("contracts/erc20/target/ink/erc20.wasm");
   const metadata = fs.readFileSync("contracts/erc20/target/ink/metadata.json");
 
-  return deploySubstrateContract(
+  const erc = await deploySubstrateContract(
     substrateTokenOwner,
     initSupply,
     api,
     wasm,
     metadata
   );
+  console.log("Substrate MyToken deployed to:", erc.address.toString());
+
+  return erc;
 }
 
 export async function deploySubstrateBridge(
@@ -58,7 +61,16 @@ export async function deploySubstrateBridge(
   const wasm = fs.readFileSync("contracts/bridge/target/ink/bridge.wasm");
   const metadata = fs.readFileSync("contracts/bridge/target/ink/metadata.json");
 
-  return deploySubstrateContract(contractOwner, address, api, wasm, metadata);
+  const bridge = await deploySubstrateContract(
+    contractOwner,
+    address,
+    api,
+    wasm,
+    metadata
+  );
+  console.log("Substrate Bridge deployed to:", bridge.address.toString());
+
+  return bridge;
 }
 
 async function deploySubstrateContract(

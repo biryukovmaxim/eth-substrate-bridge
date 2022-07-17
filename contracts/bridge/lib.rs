@@ -133,6 +133,11 @@ mod bridge {
         }
 
         #[ink(message)]
+        pub fn get_executor(&self) -> Result<AccountId> {
+            Ok(self.executor)
+        }
+
+        #[ink(message)]
         pub fn transfer(
             &mut self,
             amount: Balance,

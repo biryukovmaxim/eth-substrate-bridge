@@ -6,6 +6,7 @@ import { ApiPromise } from "@polkadot/api";
 import { AccountId } from "@polkadot/types/interfaces/runtime/types";
 import { Bytes } from "@polkadot/types-codec/extended/Bytes";
 import { IEventRecord } from "@polkadot/types/types/events";
+
 export class Executor {
   ethBridgeContract: Bridge;
   ethTokenContract: MyToken;
@@ -41,78 +42,13 @@ export class Executor {
           continue;
         }
         events.forEach((object: IEventRecord<any>) => {
-          if (
-            !this.substrateApi.events.contracts.ContractEmitted.is(object.event)
-          ) {
-            return;
+          const [updateLastId, newLastID] = this.processSubstrateEvent(
+            object,
+            lastID
+          );
+          if (updateLastId) {
+            lastID = newLastID;
           }
-          // we are dealing with a contract event
-          // @ts-ignore
-          const [account_id, contract_evt]: [AccountId, Uint8Array | Bytes] =
-            object.event.data;
-          if (
-            account_id.toString() !==
-            this.substrateBridgeContract.address.toHuman()
-          ) {
-            return;
-          }
-          // decode
-          const decoded =
-            this.substrateBridgeContract.abi.decodeEvent(contract_evt);
-          // @ts-ignore
-          let [id, from, _, amount, timestamp]: [
-            number,
-            string,
-            string,
-            number,
-            number
-          ] = decoded.args.map((arg) => arg.toJSON());
-          if (decoded.event.identifier != "Queued" || id <= lastID) {
-            return;
-          }
-          if (id > lastID) {
-            lastID = id;
-          }
-          let to: string | undefined;
-          try {
-            const toRaw: Buffer = Buffer.from(decoded.args[2].toU8a());
-            to = toRaw.toString("hex");
-          } catch (e) {
-            console.log(e);
-          }
-
-          console.log("received: ", {
-            id,
-            from,
-            to,
-            amount,
-            timestamp: new Date(timestamp),
-          });
-          this.ethTokenContract
-            .transfer(to as string, amount)
-            .then(async (tx) => {
-              await tx.wait();
-
-              const processTx =
-                await this.substrateBridgeContract.tx.processTransfer(
-                  {},
-                  // new BN(id),
-                  this.substrateApi.createType("u128", id),
-                  true
-                );
-              const txPromise: Promise<void> = new Promise(async (resolve) => {
-                const unsub = await processTx.signAndSend(
-                  this.substrateBridgeExecutor,
-                  ({ status }) => {
-                    if (status.isInBlock || status.isFinalized) {
-                      unsub();
-                      resolve();
-                    }
-                  }
-                );
-              });
-              await txPromise;
-            });
         });
       } catch (e) {
         console.log(e);
@@ -121,7 +57,112 @@ export class Executor {
     }
   }
 
-  run() {
+  private processSubstrateEvent(
+    object: IEventRecord<any>,
+    lastID: number
+  ): [boolean, number] {
+    let localLastID: number = lastID;
+    if (!this.substrateApi.events.contracts.ContractEmitted.is(object.event)) {
+      return [false, 0];
+    }
+    // @ts-ignore
+    const [account_id, contract_evt]: [AccountId, Uint8Array | Bytes] =
+      object.event.data;
+    if (
+      account_id.toString() !== this.substrateBridgeContract.address.toHuman()
+    ) {
+      return [false, 0];
+    }
+
+    const decoded = this.substrateBridgeContract.abi.decodeEvent(contract_evt);
+    // @ts-ignore
+    let [id, from, _, amount, timestamp]: [
+      number,
+      string,
+      string,
+      number,
+      number
+    ] = decoded.args.map((arg) => arg.toJSON());
+    if (decoded.event.identifier != "Queued" || id <= lastID) {
+      return [false, 0];
+    }
+    if (id > lastID) {
+      localLastID = id;
+    }
+
+    const toRaw: Buffer = Buffer.from(decoded.args[2].toU8a());
+    const to = toRaw.toString("hex");
+
+    console.log("received substrate queued event: ", {
+      id,
+      from,
+      to,
+      amount,
+      timestamp: new Date(timestamp),
+    });
+    this.ethTokenContract.transfer(to as string, amount).then(async (tx) => {
+      await tx.wait();
+
+      const processTx = await this.substrateBridgeContract.tx.processTransfer(
+        {},
+        this.substrateApi.createType("u128", id),
+        true
+      );
+      const txPromise: Promise<void> = new Promise(async (resolve) => {
+        const unsub = await processTx.signAndSend(
+          this.substrateBridgeExecutor,
+          ({ status }) => {
+            if (status.isInBlock || status.isFinalized) {
+              unsub();
+              resolve();
+            }
+          }
+        );
+      });
+      await txPromise;
+    });
+    return [true, localLastID];
+  }
+
+  private async processEthEvent(
+    id: BigNumber,
+    from: string | null,
+    to: Uint8Array,
+    amount: BigNumber,
+    timestamp: BigNumber | null
+  ) {
+    console.log(
+      "received eth queued event:" +
+        JSON.stringify({ id, from, to, amount, timestamp })
+    );
+
+    const value = this.substrateApi.createType("Balance", amount);
+    const accountId = this.substrateApi.createType("AccountId", to);
+
+    const TransferTx = this.substrateTokenContract.tx.transfer(
+      {},
+      accountId,
+      value
+    );
+
+    const unsub = await TransferTx.signAndSend(
+      this.substrateBridgeExecutor,
+      async (result) => {
+        if (result.isError) {
+          unsub();
+          const ethTx = await this.ethBridgeContract.processTransfer(id, false);
+          await ethTx.wait();
+        }
+        if (result.status.isInBlock || result.status.isFinalized) {
+          unsub();
+          const ethTx = await this.ethBridgeContract.processTransfer(id, true);
+          await ethTx.wait();
+        }
+      }
+    );
+  }
+
+  public run() {
     this.ethBridgeContract.on(
       "Queued",
       async (
@@ -131,41 +172,7 @@ export class Executor {
         amount: BigNumber,
         timestamp: BigNumber | null
       ) => {
-        console.log(
-          "received event:" +
-            JSON.stringify({ id, from, to, amount, timestamp })
-        );
-
-        const value = this.substrateApi.createType("Balance", amount);
-        const accountId = this.substrateApi.createType("AccountId", to);
-
-        const TransferTx = this.substrateTokenContract.tx.transfer(
-          {},
-          accountId,
-          value
-        );
-
-        const unsub = await TransferTx.signAndSend(
-          this.substrateBridgeExecutor,
-          async (result) => {
-            if (result.isError) {
-              unsub();
-              const ethTx = await this.ethBridgeContract.processTransfer(
-                id,
-                false
-              );
-              await ethTx.wait();
-            }
-            if (result.status.isInBlock || result.status.isFinalized) {
-              unsub();
-              const ethTx = await this.ethBridgeContract.processTransfer(
-                id,
-                true
-              );
-              await ethTx.wait();
-            }
-          }
-        );
+        await this.processEthEvent(id, from, to, amount, timestamp);
       }
     );
     this.subscribeToSubstrateBridgeEvents().then(() =>

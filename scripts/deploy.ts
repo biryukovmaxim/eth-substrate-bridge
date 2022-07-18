@@ -80,9 +80,7 @@ async function main() {
       name: "Dave default",
     });
   } else {
-    substrateBridgeOwner = keyring.addFromUri(
-      envSubstrateTokenOwnerSeed as string
-    );
+    substrateBridgeOwner = keyring.addFromUri(envSubstrateBridgeOwnerSeed);
   }
 
   // deploy eth contracts

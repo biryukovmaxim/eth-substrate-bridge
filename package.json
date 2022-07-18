@@ -39,7 +39,6 @@
   },
   "scripts": {
     "prettier": "prettier --write 'contracts/**/*.sol'",
-    "deploy": "ts-node scripts/deploy.ts",
     "run": "ts-node cmd/bridge.ts"
   }
 }

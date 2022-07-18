@@ -1,6 +1,6 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { ethers } from "hardhat";
-import { BigNumberish } from "ethers";
+import { BigNumberish, Signer } from "ethers";
 import { MyToken, MyToken__factory } from "../typechain";
 import { ApiPromise } from "@polkadot/api";
 import { KeyringPair } from "@polkadot/keyring/types";
@@ -9,7 +9,7 @@ import { Hash, AccountId } from "@polkadot/types/interfaces/runtime/types";
 import * as fs from "fs";
 
 export async function deployEthBridge(
-  bridgeExecutor: SignerWithAddress,
+  bridgeExecutor: Signer,
   myToken: string
 ): Promise<string> {
   const Bridge = await ethers.getContractFactory("Bridge", bridgeExecutor);
@@ -20,7 +20,7 @@ export async function deployEthBridge(
 }
 
 export async function deployEthErc20(
-  tokenOwner: SignerWithAddress,
+  tokenOwner: Signer,
   initSupply: BigNumberish
 ): Promise<MyToken> {
   const MyToken = await ethers.getContractFactory("MyToken", tokenOwner);
